@@ -8,16 +8,17 @@ import {
   Dimensions,
   SafeAreaView,
   Platform,
-  StatusBar,
   ScrollView,
   TextInput,
   Animated,
   ActivityIndicator,
+  Alert,
 } from 'react-native';
 import * as ImagePicker from 'react-native-image-picker';
 import SurenderChatbot from '../components/SurenderChatbot';
-import Icon from 'react-native-vector-icons/Ionicons'; // Ensure this is installed
-import LinearGradient from 'react-native-linear-gradient'; // Ensure this is installed
+import LinearGradient from 'react-native-linear-gradient';
+import { Picker } from '@react-native-picker/picker';
+import DateTimePicker from '@react-native-community/datetimepicker';
 
 const { width, height } = Dimensions.get('window');
 
@@ -29,8 +30,8 @@ interface CropPrice {
   unit: string;
   trend: 'up' | 'down' | 'stable';
   lastUpdated: string;
-  emoji: string; // Using emoji for icon
-  mandi: string; // Added mandi name
+  emoji: string;
+  mandi: string;
 }
 
 const mockMarketPrices: CropPrice[] = [
@@ -44,23 +45,22 @@ const mockMarketPrices: CropPrice[] = [
 ];
 // --- END MOCK DATA FOR MARKET PRICES ---
 
-// Simple component to display a single crop price
 const CropPriceCard: React.FC<{ crop: CropPrice }> = ({ crop }) => {
   const getTrendIcon = (trend: CropPrice['trend']) => {
-    if (trend === 'up') return '▲'; // Up arrow
-    if (trend === 'down') return '▼'; // Down arrow
-    return '▬'; // Horizontal line for stable
+    if (trend === 'up') return '▲';
+    if (trend === 'down') return '▼';
+    return '▬';
   };
 
   const getTrendColor = (trend: CropPrice['trend']) => {
-    if (trend === 'up') return '#28A745'; // Green
-    if (trend === 'down') return '#DC3545'; // Red
-    return '#FFC107'; // Yellow/Amber
+    if (trend === 'up') return '#28A745';
+    if (trend === 'down') return '#DC3545';
+    return '#FFC107';
   };
 
   return (
     <LinearGradient
-      colors={['#f8f8f8', '#ffffff']} // Subtle gradient for the card
+      colors={['#f8f8f8', '#ffffff']}
       start={{ x: 0, y: 0 }}
       end={{ x: 1, y: 1 }}
       style={styles.cropPriceCard}
@@ -100,17 +100,48 @@ const Dashboard = () => {
   const [marketPrices, setMarketPrices] = useState<CropPrice[]>([]);
   const [loadingMarketPrices, setLoadingMarketPrices] = useState(false);
 
+  // --- AI Analysis States ---
+  // Changed default to null, so user must select explicitly or you set a logical default for your use case
+  const [selectedCropForAnalysis, setSelectedCropForAnalysis] = useState<string | null>('maize'); 
+  const [analyzingImage, setAnalyzingImage] = useState(false);
+  const [aiAnalysisResult, setAiAnalysisResult] = useState<string | null>(null);
+  const [aiAnalysisError, setAiAnalysisError] = useState<string | null>(null);
+
+  // --- Soil Recommendation Crop State ---
+  const [selectedSoilCrop, setSelectedSoilCrop] = useState<string | null>('general');
+
+  const soilRecommendationCrops = [
+    { label: 'General', value: 'general' },
+    { label: 'Maize', value: 'maize' },
+    { label: 'Tomato', value: 'tomato' },
+    { label: 'Cashew', value: 'cashew' },
+    { label: 'Cassava', value: 'cassava' },
+  ];
+
+  // --- Date Input State ---
+  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [showDatePicker, setShowDatePicker] = useState(false);
+
   // --- Auto-Scrolling Refs and State ---
   const scrollViewRef = useRef<ScrollView>(null);
   const scrollOffset = useRef(0);
   const contentWidth = useRef(0);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
-  const isScrolling = useRef(false); // To prevent interference while user is touching
+  const isScrolling = useRef(false);
 
   // Animation references
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(30)).current;
   const scaleAnim = useRef(new Animated.Value(0.9)).current;
+
+  // List of crops for AI analysis dropdown (kept separate for clarity)
+  const cropsForAnalysis = [
+    { label: 'Select Crop', value: '' }, // Added a default "Select Crop" option
+    { label: 'Maize', value: 'maize' },
+    { label: 'Tomato', value: 'tomato' },
+    { label: 'Cashew', value: 'cashew' },
+    { label: 'Cassava', value: 'cassava' },
+  ];
 
   useEffect(() => {
     Animated.parallel([
@@ -137,8 +168,8 @@ const Dashboard = () => {
     setTimeout(() => {
       setMarketPrices(mockMarketPrices);
       setLoadingMarketPrices(false);
-      startAutoScroll(); // Start auto-scroll after data is loaded
-    }, 1000); // Simulate network delay for market prices
+      startAutoScroll();
+    }, 1000);
 
     // Cleanup interval on unmount
     return () => {
@@ -152,17 +183,14 @@ const Dashboard = () => {
     if (intervalRef.current) {
       clearInterval(intervalRef.current);
     }
-    // Calculate effective card width including margin
-    const cardWidthWithMargin = (width * 0.38) + (8 * 2); // cropPriceCard width + horizontal margin
+    const cardWidthWithMargin = (width * 0.38) + (8 * 2);
     
     intervalRef.current = setInterval(() => {
       if (!isScrolling.current && scrollViewRef.current && contentWidth.current > 0) {
-        // Calculate the next scroll position based on card width
         const newOffset = scrollOffset.current + cardWidthWithMargin;
-        const maxOffset = contentWidth.current - width + (20 * 2); // Adjusted maxOffset to account for screen width and container padding
+        const maxOffset = contentWidth.current - width + (20 * 2);
 
         if (newOffset >= maxOffset) {
-          // If we reach the end, smoothly scroll back to the beginning
           scrollViewRef.current.scrollTo({ x: 0, animated: true });
           scrollOffset.current = 0;
         } else {
@@ -170,7 +198,7 @@ const Dashboard = () => {
           scrollOffset.current = newOffset;
         }
       }
-    }, 3000); // Scroll every 3 seconds
+    }, 3000);
   };
 
   const pauseAutoScroll = () => {
@@ -194,6 +222,27 @@ const Dashboard = () => {
     contentWidth.current = w;
   };
 
+  // --- Date Picker Handlers ---
+  const onDateChange = (event: any, date?: Date) => {
+    setShowDatePicker(Platform.OS === 'ios');
+    if (date) {
+      setSelectedDate(date);
+    }
+  };
+
+  const showDatepicker = () => {
+    setShowDatePicker(true);
+  };
+
+  const formatDate = (date: Date) => {
+    // Current year to avoid future dates by default if not changed by user
+    const currentYear = new Date().getFullYear();
+    if (date.getFullYear() > currentYear) {
+      date.setFullYear(currentYear);
+    }
+    return date.toLocaleDateString('en-GB'); // Format as DD/MM/YYYY
+  };
+
   const handleImagePick = (type: 'camera' | 'gallery') => {
     const options = { mediaType: 'photo' as const, includeBase64: false };
     const picker = type === 'camera'
@@ -204,9 +253,11 @@ const Dashboard = () => {
       if (response?.didCancel) {
         // User cancelled
       } else if (response?.errorMessage) {
-        // Error
+        Alert.alert('Image Pick Error', `Failed to pick image: ${response.errorMessage}`);
       } else if (response?.assets && response.assets.length > 0) {
         setImageUri(response.assets[0].uri || null);
+        setAiAnalysisResult(null); // Clear previous analysis result
+        setAiAnalysisError(null); // Clear previous analysis error
       }
     });
   };
@@ -216,18 +267,22 @@ const Dashboard = () => {
     const numValue = parseFloat(value);
     switch (type) {
       case 'moisture':
+        if (isNaN(numValue)) return { status: 'invalid', color: '#B0BEC5', text: 'Invalid value' };
         if (numValue < 20) return { status: 'low', color: '#F44336', text: 'Too Dry' };
         if (numValue > 80) return { status: 'high', color: '#FF9800', text: 'Too Wet' };
         return { status: 'optimal', color: '#4CAF50', text: 'Optimal' };
       case 'temperature':
+        if (isNaN(numValue)) return { status: 'invalid', color: '#B0BEC5', text: 'Invalid value' };
         if (numValue < 15) return { status: 'low', color: '#2196F3', text: 'Too Cold' };
         if (numValue > 35) return { status: 'high', color: '#F44336', text: 'Too Hot' };
         return { status: 'optimal', color: '#4CAF50', text: 'Good' };
       case 'ph':
+        if (isNaN(numValue)) return { status: 'invalid', color: '#B0BEC5', text: 'Invalid value' };
         if (numValue < 6.0) return { status: 'low', color: '#FF9800', text: 'Acidic' };
         if (numValue > 7.5) return { status: 'high', color: '#9C27B0', text: 'Alkaline' };
         return { status: 'optimal', color: '#4CAF50', text: 'Balanced' };
       case 'nitrogen':
+        if (isNaN(numValue)) return { status: 'invalid', color: '#B0BEC5', text: 'Invalid value' };
         if (numValue < 20) return { status: 'low', color: '#F44336', text: 'Low' };
         if (numValue > 40) return { status: 'high', color: '#FF9800', text: 'High' };
         return { status: 'optimal', color: '#4CAF50', text: 'Good' };
@@ -241,9 +296,11 @@ const Dashboard = () => {
     setRecommendationError(null);
     setRecommendations(null);
 
-    const prompt = `Based on the following soil parameters, provide concise agricultural recommendations for optimal crop growth. 
+    const cropContext = selectedSoilCrop && selectedSoilCrop !== 'general' ? ` for ${selectedSoilCrop.charAt(0).toUpperCase() + selectedSoilCrop.slice(1)}` : '';
+
+    const prompt = `Based on the following soil parameters, provide concise agricultural recommendations${cropContext} for optimal crop growth. 
                      Be specific and actionable, suggesting adjustments if a parameter is not optimal.
-                     Moisture: ${moisture}%, Temperature: ${temperature}°C, pH: ${ph}, Nitrogen: ${nitrogen} PPM.
+                     Moisture: ${moisture ? moisture + '%' : 'unknown'}, Temperature: ${temperature ? temperature + '°C' : 'unknown'}, pH: ${ph || 'unknown'}, Nitrogen: ${nitrogen ? nitrogen + ' PPM' : 'unknown'}.
                      If any parameter is missing or invalid, assume it's "unknown" and provide general advice.`;
 
     try {
@@ -251,7 +308,7 @@ const Dashboard = () => {
       chatHistory.push({ role: "user", parts: [{ text: prompt }] });
       const payload = { contents: chatHistory };
       // IMPORTANT: Replace with your actual API key
-      const apiKey = ""; 
+      const apiKey = "YOUR_GEMINI_API_KEY_HERE"; 
       const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
 
       const response = await fetch(apiUrl, {
@@ -268,21 +325,96 @@ const Dashboard = () => {
         const text = result.candidates[0].content.parts[0].text;
         setRecommendations(text);
       } else {
-        setRecommendationError('Failed to get recommendations. Please try again.');
+        setRecommendationError('Failed to get recommendations. Check API key or response format.');
       }
-    } catch (error) {
-      console.error("AI Recommendation error:", error); // Log the actual error
-      setRecommendationError('An error occurred while connecting to the AI. Please check your network or try again later.');
+    } catch (error: any) {
+      console.error("AI Recommendation error:", error);
+      setRecommendationError(`An error occurred: ${error.message || 'Please check your network or try again later.'}`);
     } finally {
       setLoadingRecommendations(false);
     }
   };
 
+  const sendImageForAnalysis = async () => {
+    if (!imageUri) {
+      setAiAnalysisError('Please select an image first.');
+      Alert.alert('No Image', 'Please select an image from your gallery or camera to perform analysis.');
+      return;
+    }
+    if (!selectedCropForAnalysis || selectedCropForAnalysis === '') {
+      setAiAnalysisError('Please select a crop type for analysis.');
+      Alert.alert('No Crop Selected', 'Please choose the crop type from the dropdown to analyze the image.');
+      return;
+    }
+
+    setAnalyzingImage(true);
+    setAiAnalysisResult(null); // Clear previous results
+    setAiAnalysisError(null); // Clear previous errors
+
+    // IMPORTANT: Replace with your Flask API's actual IP address and port
+    // Ensure your Flask app is running and accessible from your device/emulator's network.
+    const flaskApiUrl = `http://172.20.182.62:5001/predict/${selectedCropForAnalysis}`; 
+
+    const formData = new FormData();
+
+    const fileExtension = imageUri.split('.').pop();
+    const fileName = `photo.${fileExtension}`;
+    const fileType = `image/${fileExtension}`; // e.g., 'image/jpeg', 'image/png'
+
+    formData.append('file', {
+      uri: imageUri,
+      name: fileName,
+      type: fileType,
+    } as any);
+
+    // Optional: Add selected date to formData, though your app.py doesn't currently use it for prediction logic.
+    // formData.append('date', selectedDate.toISOString());
+
+    try {
+      const response = await fetch(flaskApiUrl, {
+        method: 'POST',
+        body: formData,
+        headers: {
+          'Content-Type': 'multipart/form-data', // This header is crucial for FormData
+        },
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text(); // Get raw text to help debug API errors
+        let errorMessage = `HTTP error! Status: ${response.status}`;
+        try {
+            const errorJson = JSON.parse(errorText);
+            errorMessage = errorJson.error || errorMessage;
+        } catch (parseError) {
+            errorMessage += ` - Response: ${errorText.substring(0, 100)}...`; // Show part of non-JSON response
+        }
+        throw new Error(errorMessage);
+      }
+
+      const result = await response.json();
+      
+      // Check if prediction and confidence are in the result
+      if (result.prediction && typeof result.confidence === 'number') {
+        setAiAnalysisResult(`Prediction for ${result.crop.toUpperCase()}: ${result.prediction}. Confidence: ${(result.confidence * 100).toFixed(2)}%`);
+      } else {
+        setAiAnalysisError('Unexpected response format from AI backend.');
+        console.warn('AI Backend returned unexpected data:', result);
+      }
+      
+    } catch (error: any) {
+      console.error('AI Analysis network/API error:', error);
+      setAiAnalysisError(`Analysis failed: ${error.message || 'Network error or server unreachable.'} Make sure Flask server is running at ${flaskApiUrl} and accessible.`);
+      Alert.alert('Analysis Failed', `Could not connect to the AI service or an error occurred: ${error.message || 'Unknown error'}`);
+    } finally {
+      setAnalyzingImage(false);
+    }
+  };
+
+
   return (
     <SafeAreaView style={styles.safeArea}>
-      {/* Full-screen Linear Gradient Background */}
       <LinearGradient
-        colors={['#29ca9f', '#fbe2ba']} // Green at top, orangish at bottom
+        colors={['#29ca9f', '#fbe2ba']}
         start={{ x: 0, y: 0 }}
         end={{ x: 0, y: 0.6 }}
         style={styles.fullScreenGradient}
@@ -309,7 +441,7 @@ const Dashboard = () => {
               </LinearGradient>
             </Animated.View>
 
-          {/* Market Price Section - MOVED TO TOP */}
+          {/* Market Price Section */}
           <Animated.View
             style={[
               styles.marketPriceSection,
@@ -321,13 +453,10 @@ const Dashboard = () => {
               <TouchableOpacity
                 onPress={() => {
                   console.log('Navigate to full Market Price Screen');
-                  // TODO: Implement actual navigation to your dedicated MarketPriceScreen here
-                  // Example: navigation.navigate('MarketPriceScreen');
                 }}
-                style={styles.viewAllPricesButton} // Apply button style
+                style={styles.viewAllPricesButton}
               >
                 {/* <Text style={styles.viewAllPricesText}>View All</Text> */}
-                {/* <Icon name="chevron-forward-outline" size={20} color="#03A9F4" /> */}
               </TouchableOpacity>
             </View>
             {loadingMarketPrices ? (
@@ -343,11 +472,11 @@ const Dashboard = () => {
                 contentContainerStyle={styles.marketPriceScroll}
                 onContentSizeChange={handleContentSizeChange}
                 onScroll={e => { scrollOffset.current = e.nativeEvent.contentOffset.x; }}
-                scrollEventThrottle={16} // very important for smooth scrolling
+                scrollEventThrottle={16}
                 onScrollBeginDrag={handleScrollBeginDrag}
                 onScrollEndDrag={handleScrollEndDrag}
               >
-                {marketPrices.map(crop => (
+                {mockMarketPrices.map(crop => (
                   <CropPriceCard key={crop.id} crop={crop} />
                 ))}
               </ScrollView>
@@ -355,27 +484,45 @@ const Dashboard = () => {
           </Animated.View>
 
           {/* Upload Card */}
-          <Animated.View 
+          <Animated.View
             style={[
               styles.uploadCard,
               { opacity: fadeAnim, transform: [{ scale: scaleAnim }] },
             ]}
           >
-            <Image 
+            <Image
               source={require('../assets/cloud.png')}
-              style={styles.iconImageLarge} 
+              style={styles.iconImageLarge}
             />
             <Text style={styles.uploadText}>Select Image</Text>
-            <Text style={styles.uploadHint}>Choose from gallery or use camera</Text>
+            <Text style={styles.uploadHint}>Choose from gallery or use camera for AI analysis</Text>
+
+            {/* Date Input for Image Upload */}
+            <TouchableOpacity onPress={showDatepicker} style={styles.dateInputContainer}>
+              <Text style={styles.dateInputText}>Date: {formatDate(selectedDate)}</Text>
+              {Platform.OS === 'android' && (
+                <Text style={styles.dateInputHint}>Tap to change</Text>
+              )}
+            </TouchableOpacity>
+            {showDatePicker && (
+              <DateTimePicker
+                testID="dateTimePicker"
+                value={selectedDate}
+                mode="date"
+                display="default"
+                onChange={onDateChange}
+              />
+            )}
+
             <View style={styles.buttonRow}>
               <TouchableOpacity
                 style={styles.optionButton1}
                 onPress={() => handleImagePick('gallery')}
                 activeOpacity={0.7}
               >
-                <Image 
+                <Image
                   source={require('../assets/gallery.png')}
-                  style={styles.iconImageRegular} 
+                  style={styles.iconImageRegular}
                 />
                 <Text style={styles.optionText1}>Gallery</Text>
               </TouchableOpacity>
@@ -384,17 +531,127 @@ const Dashboard = () => {
                 onPress={() => handleImagePick('camera')}
                 activeOpacity={0.7}
               >
-                <Image 
+                <Image
                   source={require('../assets/camera.png')}
-                  style={styles.iconImageRegular} 
+                  style={styles.iconImageRegular}
                 />
                 <Text style={styles.optionText}>Camera</Text>
               </TouchableOpacity>
             </View>
           </Animated.View>
 
+          {/* Image Preview */}
+          {imageUri && (
+            <Animated.View
+              style={[
+                styles.imagePreviewContainer,
+                { opacity: fadeAnim, transform: [{ scale: scaleAnim }] },
+              ]}
+            >
+              <Image source={{ uri: imageUri }} style={styles.previewImage} />
+              <TouchableOpacity
+                style={styles.removeImageButton}
+                onPress={() => {
+                  setImageUri(null);
+                  setAiAnalysisResult(null);
+                  setAiAnalysisError(null);
+                }}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.removeImageEmoji}>❌</Text>
+              </TouchableOpacity>
+            </Animated.View>
+          )}
+
+<View style={styles.soilCropButtonsContainer}>
+              {soilRecommendationCrops.map((crop) => (
+                <TouchableOpacity
+                  key={crop.value}
+                  style={[
+                    styles.soilCropButton,
+                    selectedSoilCrop === crop.value && styles.soilCropButtonSelected,
+                  ]}
+                  onPress={() => setSelectedSoilCrop(crop.value)}
+                  activeOpacity={0.7}
+                >
+                  <Text
+                    style={[
+                      styles.soilCropButtonText,
+                      selectedSoilCrop === crop.value && styles.soilCropButtonTextSelected,
+                    ]}
+                  >
+                    {crop.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+          {/* Bottom Cards - AI Analysis (Modified) */}
+          <Animated.View
+            style={[
+              styles.bottomCards,
+              { opacity: fadeAnim, transform: [{ translateY: slideAnim }] },
+            ]}
+          >
+            <TouchableOpacity
+              style={[styles.aiCard, (!imageUri || analyzingImage || !selectedCropForAnalysis || selectedCropForAnalysis === '') && styles.disabledButton]}
+              activeOpacity={0.8}
+              onPress={sendImageForAnalysis}
+              disabled={!imageUri || analyzingImage || !selectedCropForAnalysis || selectedCropForAnalysis === ''}
+            >
+              {analyzingImage ? (
+                <ActivityIndicator color="#fff" size="small" />
+              ) : (
+                <>
+                  <Image
+                    source={require('../assets/ai.png')}
+                    style={styles.iconImageLarge}
+                  />
+                  <Text style={styles.aiTitle}>AI Analysis</Text>
+                  <Text style={styles.aiDesc}>Advanced crop disease detection</Text>
+                  <View style={styles.pickerContainer}>
+                    <Picker
+                      selectedValue={selectedCropForAnalysis}
+                      onValueChange={(itemValue) => setSelectedCropForAnalysis(itemValue)}
+                      style={styles.cropPicker}
+                      itemStyle={styles.pickerItem}
+                    >
+                      {cropsForAnalysis.map((crop) => (
+                        <Picker.Item key={crop.value} label={crop.label} value={crop.value} />
+                      ))}
+                    </Picker>
+                  </View>
+                </>
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.treatmentCard} activeOpacity={0.8}>
+              <Image
+                source={require('../assets/treatment.png')}
+                style={styles.iconImageLarge}
+              />
+              <Text style={styles.aiTitle}>Treatment</Text>
+              <Text style={styles.aiDesc}>Personalized care recommendations</Text>
+            </TouchableOpacity>
+          </Animated.View>
+          
+
+          {/* AI Analysis Result Display */}
+          {aiAnalysisResult && (
+            <View style={styles.aiResultCard}>
+              <Text style={styles.aiResultTitle}>AI Analysis Result</Text>
+              <Text style={styles.aiResultText}>{aiAnalysisResult}</Text>
+            </View>
+          )}
+
+          {aiAnalysisError && (
+            <View style={styles.aiErrorCard}>
+              <Text style={styles.aiErrorText}>{aiAnalysisError}</Text>
+            </View>
+          )}
+
           {/* Soil Parameters Section */}
-          <Animated.View 
+          <Animated.View
             style={[
               styles.soilParametersContainer,
               { opacity: fadeAnim, transform: [{ translateY: slideAnim }] },
@@ -404,6 +661,11 @@ const Dashboard = () => {
               <Text style={styles.sectionTitle}>🌱 Soil Parameters</Text>
               <Text style={styles.sectionSubtitle}>Monitor your soil health</Text>
             </View>
+
+            {/* Crop Selection Buttons for Soil Recommendations */}
+            
+
+
             <View style={styles.parameterGrid}>
               {/* Moisture Card */}
               <View style={[styles.parameterCard, styles.moistureCard]}>
@@ -526,50 +788,6 @@ const Dashboard = () => {
               <Text style={styles.recommendationsText}>{recommendations}</Text>
             </View>
           )}
-
-          {/* Bottom Cards - AI Analysis and Treatment */}
-          <Animated.View 
-            style={[
-              styles.bottomCards,
-              { opacity: fadeAnim, transform: [{ translateY: slideAnim }] },
-            ]}
-          >
-            <TouchableOpacity style={styles.aiCard} activeOpacity={0.8}>
-              <Image 
-                source={require('../assets/ai.png')}
-                style={styles.iconImageLarge} 
-              />
-              <Text style={styles.aiTitle}>AI Analysis</Text>
-              <Text style={styles.aiDesc}>Advanced crop disease detection</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.treatmentCard} activeOpacity={0.8}>
-              <Image 
-                source={require('../assets/treatment.png')}
-                style={styles.iconImageLarge} 
-              />
-              <Text style={styles.aiTitle}>Treatment</Text>
-              <Text style={styles.aiDesc}>Personalized care recommendations</Text>
-            </TouchableOpacity>
-          </Animated.View>
-
-          {/* Image Preview */}
-          {imageUri && (
-            <Animated.View 
-              style={[
-                styles.imagePreviewContainer,
-                { opacity: fadeAnim, transform: [{ scale: scaleAnim }] },
-              ]}
-            >
-              <Image source={{ uri: imageUri }} style={styles.previewImage} />
-              <TouchableOpacity 
-                style={styles.removeImageButton}
-                onPress={() => setImageUri(null)}
-                activeOpacity={0.7}
-              >
-                <Icon name="close-circle" size={24} color="#F44336" />
-              </TouchableOpacity>
-            </Animated.View>
-          )}
         </ScrollView>
 
       {/* Floating Chatbot Button (only show if chatbot is closed) */}
@@ -579,9 +797,9 @@ const Dashboard = () => {
           style={styles.chatToggle}
           activeOpacity={0.8}
         >
-          <Image 
+          <Image
               source={require('../assets/farmer.png')}
-              style={styles.iconImageLarge1} 
+              style={styles.iconImageLarge1}
             />
         </TouchableOpacity>
       )}
@@ -590,7 +808,7 @@ const Dashboard = () => {
       {chatVisible && (
         <SurenderChatbot onClose={() => setChatVisible(false)} />
       )}
-      
+
       </View>
     </SafeAreaView>
   );
@@ -950,6 +1168,7 @@ const styles = StyleSheet.create({
     position: 'relative',
     width: '100%',
     marginTop: 20,
+    marginBottom: 25,
   },
   previewImage: {
     width: '100%',
@@ -964,6 +1183,10 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.9)',
     borderRadius: 12,
     padding: 4,
+  },
+  removeImageEmoji: {
+    fontSize: 20,
+    color: '#F44336',
   },
   iconImageLarge: {
     width: 40,
@@ -986,7 +1209,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 6,
     zIndex: 10,
-    overflow: 'hidden',
     marginBottom:69,
   },
   chatContainer: {
@@ -1009,14 +1231,12 @@ const styles = StyleSheet.create({
     width:30,
     height:30,
   },
-  // --- Updated Styles for Market Price Section ---
   marketPriceSection: {
     width: '100%',
     marginBottom: 25,
-    backgroundColor: '#E8F5E9', // Light background for the section
+    backgroundColor: '#E8F5E9',
     borderRadius: 18,
     paddingVertical: 10,
-    // paddingHorizontal: 10, // Adjust padding - removed to allow cards to fill better
     elevation: 5,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 3 },
@@ -1028,40 +1248,40 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 15,
-    paddingHorizontal: 20, // Keep padding for header text
+    paddingHorizontal: 20,
   },
   viewAllPricesButton: {
-    flexDirection: 'row', // To align text and icon
+    flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'transparent', // Make button background transparent
-    paddingHorizontal: 8, // Adjust padding
+    backgroundColor: 'transparent',
+    paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 8,
   },
   viewAllPricesText: {
-    color: '#03A9F4', // Blue color for the link
+    color: '#03A9F4',
     fontSize: 16,
     fontWeight: '600',
-    marginRight: 4, // Space between text and icon
+    marginRight: 4,
   },
   marketPriceScroll: {
-    paddingHorizontal: 10, // Add padding to the scroll view content itself
+    paddingHorizontal: 10,
   },
   cropPriceCard: {
-    width: width * 0.38, // Made it smaller, showing approx 2.5 cards
+    width: width * 0.38,
     borderRadius: 15,
-    padding: 10, // Reduced padding
-    marginHorizontal: 8, // Use horizontal margin for spacing
+    padding: 10,
+    marginHorizontal: 8,
     elevation: 4,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
     alignItems: 'center',
-    justifyContent: 'space-between', // Distribute content 
-    borderLeftColor: '#29ca9f', // Theme color border
-    flexShrink: 0, // Prevent cards from shrinking
-    height: 140, // Reduced height for a more compact look
+    justifyContent: 'space-between',
+    borderLeftColor: '#29ca9f',
+    flexShrink: 0,
+    height: 140,
   },
   cropPriceCardContent: {
     flexDirection: 'row',
@@ -1071,22 +1291,22 @@ const styles = StyleSheet.create({
     marginBottom: 0,
   },
   cropPriceEmoji: {
-    fontSize: 32, // Smaller emoji
-    marginRight: 8, // Space between emoji and text
+    fontSize: 32,
+    marginRight: 8,
   },
   cropInfo: {
     flex: 1,
-    alignItems: 'flex-start', // Align text to left within its container
+    alignItems: 'flex-start',
   },
   cropPriceName: {
-    fontSize: 15, // Smaller font
+    fontSize: 15,
     fontWeight: 'bold',
     color: '#333',
-    textAlign: 'left', // Align name to left
+    textAlign: 'left',
     marginBottom: 2,
   },
   cropPriceValue: {
-    fontSize: 17, // Slightly smaller
+    fontSize: 17,
     fontWeight: 'bold',
     color: '#1A3C34',
     marginBottom: 2,
@@ -1096,22 +1316,22 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   cropPriceTrendIcon: {
-    fontSize: 16, // Smaller icon
-    marginRight: 4, // Smaller space
+    fontSize: 16,
+    marginRight: 4,
   },
   cropPriceTrendText: {
-    fontSize: 12, // Smaller text
+    fontSize: 12,
     color: '#666',
   },
   cropPriceMandi: {
-    fontSize: 11, // Smaller
+    fontSize: 11,
     color: '#555',
     textAlign: 'center',
     marginTop: -5,
     marginRight:10
   },
   cropPriceUpdated: {
-    fontSize: 9, // Smaller
+    fontSize: 9,
     color: '#888',
     marginTop: 2,
   },
@@ -1124,6 +1344,132 @@ const styles = StyleSheet.create({
     marginTop: 10,
     fontSize: 16,
     color: '#555',
+  },
+  pickerContainer: {
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    borderRadius: 10,
+    marginTop: 10,
+    width: '90%',
+    overflow: 'hidden',
+  },
+  cropPicker: {
+    height: 40,
+    width: '100%',
+    color: '#fff',
+  },
+  pickerItem: {
+    fontSize: 14,
+    color: '#fff',
+    height: 40,
+  },
+  disabledButton: {
+    opacity: 0.6,
+  },
+  aiResultCard: {
+    backgroundColor: '#E8F5E9',
+    borderRadius: 16,
+    padding: 20,
+    width: '100%',
+    marginBottom: 20,
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    borderLeftWidth: 5,
+    borderLeftColor: '#4CAF50',
+  },
+  aiResultTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#2E7D32',
+    marginBottom: 10,
+    textAlign: 'center',
+  },
+  aiResultText: {
+    fontSize: 16,
+    color: '#333',
+    lineHeight: 24,
+    textAlign: 'center',
+  },
+  aiErrorCard: {
+    backgroundColor: '#FFEBEE',
+    borderRadius: 16,
+    padding: 20,
+    width: '100%',
+    marginBottom: 20,
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    borderLeftWidth: 5,
+    borderLeftColor: '#F44336',
+  },
+  aiErrorText: {
+    fontSize: 16,
+    color: '#D32F2F',
+    lineHeight: 24,
+    textAlign: 'center',
+    fontWeight: '600',
+  },
+  soilCropButtonsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: 10,
+    marginBottom: 20,
+    marginTop: 10,
+    paddingHorizontal: 5,
+  },
+  soilCropButton: {
+    backgroundColor: '#E0E0E0',
+    paddingVertical: 10,
+    paddingHorizontal: 15,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#B0BEC5',
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+  },
+  soilCropButtonSelected: {
+    backgroundColor: '#4CAF50',
+    borderColor: '#2E7D32',
+  },
+  soilCropButtonText: {
+    color: '#333',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  soilCropButtonTextSelected: {
+    color: '#fff',
+    fontWeight: '700',
+  },
+  // --- New Styles for Date Input ---
+  dateInputContainer: {
+    backgroundColor: 'rgba(255, 255, 255, 0.8)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#76B947',
+    paddingHorizontal: 15,
+    paddingVertical: 12,
+    marginTop: 15,
+    width: '90%',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  dateInputText: {
+    fontSize: 16,
+    color: '#333',
+    fontWeight: '500',
+  },
+  dateInputHint: {
+    fontSize: 12,
+    color: '#777',
   },
 });
 
